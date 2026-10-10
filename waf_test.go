@@ -6,6 +6,8 @@ package coraza
 import (
 	"errors"
 	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/corazawaf/coraza/v3/experimental/plugins/plugintypes"
@@ -232,5 +234,43 @@ func TestRulesCount(t *testing.T) {
 	}
 	if rules.RulesCount() != 2 {
 		t.Fatalf("expected 2 rules, got %d", rules.RulesCount())
+	}
+}
+
+// Concurrency cannot be expressed as an engine profile, which runs sequentially.
+func TestConcurrentRuleRemoveTargetByID(t *testing.T) {
+	// Rule 3 has three static exceptions (len 3, cap 4), so an append on a
+	// copy of its Exceptions would write into the shared backing array.
+	waf, err := NewWAF(NewWAFConfig().WithDirectives(`
+SecRuleEngine On
+SecRule REQUEST_URI "@beginsWith /alpha" "id:1,phase:1,pass,nolog,ctl:ruleRemoveTargetById=3;REQUEST_COOKIES:alpha"
+SecRule REQUEST_URI "@beginsWith /beta" "id:2,phase:1,pass,nolog,ctl:ruleRemoveTargetById=3;REQUEST_COOKIES:beta"
+SecRule REQUEST_COOKIES|!REQUEST_COOKIES:a|!REQUEST_COOKIES:b|!REQUEST_COOKIES:c "@rx ." "id:3,phase:1,deny,status:403,log"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var blocked atomic.Int64
+	var wg sync.WaitGroup
+	for w := 0; w < 16; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				name := []string{"alpha", "beta"}[(w+i)%2]
+				tx := waf.NewTransaction()
+				tx.ProcessURI("/"+name, "GET", "HTTP/1.1")
+				tx.AddRequestHeader("Cookie", name+"=1")
+				if tx.ProcessRequestHeaders() != nil {
+					blocked.Add(1)
+				}
+				tx.ProcessLogging()
+				_ = tx.Close()
+			}
+		}()
+	}
+	wg.Wait()
+	if n := blocked.Load(); n > 0 {
+		t.Errorf("%d requests were blocked by a target their own ctl removed", n)
 	}
 }

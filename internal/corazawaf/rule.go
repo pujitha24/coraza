@@ -243,6 +243,9 @@ func (r *Rule) doEvaluate(logger debuglog.Logger, phase types.RulePhase, tx *Tra
 				continue
 			}
 			var values []types.MatchData
+			// Cap the copy so the append below reallocates instead of writing into
+			// the rule's shared backing array, which concurrent transactions use.
+			v.Exceptions = v.Exceptions[:len(v.Exceptions):len(v.Exceptions)]
 			for _, c := range ecol {
 				if c.Variable == v.Variable {
 					// TODO shall we check the pointer?
