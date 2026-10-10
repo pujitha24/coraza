@@ -125,7 +125,7 @@ func (rg *RuleGroup) DeleteByRange(start, end int) {
 func (rg *RuleGroup) DeleteByMsg(msg string) {
 	var kept []Rule
 	for _, r := range rg.rules {
-		if r.Msg.String() != msg {
+		if r.Msg == nil || r.Msg.String() != msg {
 			kept = append(kept, r)
 		}
 	}
