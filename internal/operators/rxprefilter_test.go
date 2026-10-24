@@ -182,6 +182,16 @@ func TestPrefilterNeverCausesFalseNegatives(t *testing.T) {
 		// "bc", so "bc" is NOT a true prefix constraint.
 		{`^(?:a|.)bc.*$`, "xbc", true},
 		{`^(?:a|.)bc.*$`, "xyz", false},
+
+		// Regression: a trie suffix must start at its concat's first byte. The
+		// literal after the wildcard in the second branch is not adjacent to
+		// the prefix, so "2"+"2250" must not become a required "22250".
+		{`2(?:x|.2250)`, "2.2250", true},
+		{`2(?:x|.2250)`, "2x", true},
+		{`2(?:x|.2250)`, "unrelated", false},
+		{`2(?:x|.(?:ab|cd))`, "2.ab", true},
+		{`2(?:x|.p_(?:ab|cd))`, "2.p_ab", true},
+		{`(?i)^(?:429496729[56]|2(?:14748364[78]|.22507385850720(?:07|11)e-308)|-(?:214748364[89]|0000023456)|00000(?:12345|23456)|1e309)$`, "2.2250738585072011e-308", true},
 	}
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("%s/%s", tc.pattern, tc.input), func(t *testing.T) {
